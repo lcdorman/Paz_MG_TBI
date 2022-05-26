@@ -1,5 +1,5 @@
-# scrnaseq
-Molofsky lab database of single-cell rnaseq workflow (https://www.annamolofskylab.org/)
+
+Code used for Molofsky-Paz collaboration: single-cell sequencing of thalamic Cd11b+ cells following TBI with and without CD4 antibody treatment. 
 
 
 
