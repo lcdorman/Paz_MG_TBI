@@ -194,6 +194,8 @@ if (organism %in% c("Human","Mouse","Rat")){
   #Check with a violin plot
   print(VlnPlot(sobject,c(sexgenesmale,sexgenesfemale),group.by = "sex"))
   table(sobject$sex,sobject$sample_description)
+  sobject$fulldescription = paste0(sobject$sample_description,"_",sobject$sex)
+  VlnPlot(sobject,"nFeature_RNA",group.by = "fulldescription")
 }
 
 ```
