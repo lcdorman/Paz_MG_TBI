@@ -278,7 +278,8 @@ Subset, go to "B2"
 
 ```{r,eval = FALSE}
 sobject = subset(sobject,subset = celltype == keep)
-Project(sobject) = paste0(project,"_",keep)
-save(sobject,file = file.path(dir,datafolder,paste0(keep,"_",filename)))
+Project(sobject) = paste0(keep,"_",project)
+filename = paste0(Project(sobject),"_filtered.RData")
+save(sobject,file = file.path(dir,datafolder,filename))
 ```
 
