@@ -38,7 +38,7 @@ getwd()
 *Edit the following code every time* and make sure the folders "QC" and ... are present in the "dir" folder above
 ```{r}
 #Specify your preferred directory for all input + output
-dir= "/Users/whippoorwill/Desktop/Sequencing/Paz_MG_TBI/"
+dir= "/Users/whippoorwill/Desktop/Sequencing/Paz_Thalamus_2022/"
 
 #Specify exactly where your matrix files/raw data live
 datafolder = "CellRanger"
