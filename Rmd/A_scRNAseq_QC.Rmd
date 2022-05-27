@@ -38,13 +38,13 @@ getwd()
 *Edit the following code every time* and make sure the folders "QC" and ... are present in the "dir" folder above
 ```{r}
 #Specify your preferred directory for all input + output
-dir= "/Users/whippoorwill/Desktop/Sequencing/LD_RNASeq2018/"
+dir= "/Users/whippoorwill/Desktop/Sequencing/Paz_MG_TBI/"
 
 #Specify exactly where your matrix files/raw data live
-datafolder = "Data_Cellranger/CellRanger"
+datafolder = "CellRanger"
 
 #Add in any folder name within each sample that leads to your data files: 
-innerfolder = NULL
+innerfolder = "filtered_feature_bc_matrix"
 
 #Specify what kind of data you have: "CellRanger" Output (barcodes + matrix .tsv files) or "counts" data (usually something ending in counts.tsv)
 datatype = "CellRanger"
@@ -57,14 +57,15 @@ min.cells = 1
 min.features = 1
 
 #Name your project something descriptive
-project<-"allglia_BC" 
+project<-"Paz_MG_Thal" 
 
 #Specify your organism; please capitalize the first letter (i.e. "Mouse", "Human","Zebrafish","Rat")
 organism = "Mouse"
 
 #Add in metadata. You may want to run the next chunk and then return to edit this so it is in the same order as "ids"
-age = c(rep("P7",2))
-condition = c("Deprived","Control")
+treatment = c("IgG","aCD4","IgG")
+condition = c("Control","TBI","TBI")
+region = c("Thalamus","Thalamus","Thalamus")
 
 #metrics you want to look at for QC
 m = c("nCount_RNA","nFeature_RNA","percent.mito")
@@ -86,7 +87,7 @@ For each ID (i.e. folder), read in the data and change the colomn names to look 
 ```{r}
 if (datatype == "CellRanger"){
   d10x.data = sapply(ids, function(id){
-    d10x = Read10X(file.path(dir,datafolder,id)) #read in each matrix
+    d10x = Read10X(file.path(dir,datafolder,id,innerfolder)) #read in each matrix
     colnames(d10x) = paste(sapply(strsplit(colnames(d10x),split="-"),'[[',1L),id,sep="-") 
     d10x
   })
