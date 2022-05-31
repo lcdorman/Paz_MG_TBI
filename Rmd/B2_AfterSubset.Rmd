@@ -57,7 +57,7 @@ filename = paste0(project,"_filtered.RData")
 organism = "Mouse"
 
 #metrics you want to look at for QC
-m = c("nCount_RNA","nFeature_RNA","percent.mito")
+m = c("nCount_RNA","nFeature_RNA","percent.mito","percent.ribo")
 
 #You can add in housekeeping genes if you want them to be scaled always; otherwise set to "NULL"
 add.genes = NULL
@@ -97,7 +97,7 @@ maxpct = 1
 single = F #should each gene be a marker of a single cluster only
 hgenes = 3 #how many genes should be in the heatmap per cluster
 ncells = 100 #max # of cells per heatmap column
-column = "celltypecluster" #division you care about
+column = "seurat_clusters" #division you care about
 
 #Variance partition: Remove genes only associated with a technical variable or sex of the mouse
 variance = F
@@ -107,6 +107,9 @@ variance = F
 Load in your filtered dataset
 ```{r}
 load(file.path(dir,datafolder,filename))
+```
+```{r}
+table(sobject$fulldescription)
 ```
 
 Function to print multiple graphs: 
@@ -191,7 +194,7 @@ Once you are satisfied with pc's, run clustering:
 ```{r}
 sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F)
 sobject<-FindNeighbors(sobject,dims=pcs,verbose=F)
-sobject<-FindClusters(sobject,verbose=F,resolution = res)
+sobject<-FindClusters(sobject,verbose=F,resolution = 0.3)
 ```
 
 Plot important objects; check parameters before moving forward, evaluate QC, clustering
@@ -221,36 +224,7 @@ Note: delete cluster 5, hashed because I only ran this the first time
 If you are happy with the QC, you can move on to either subdividing further to isolate interesting cells (below) or running differential expression comparisons on the existing clustering. 
 
 *Note that the chunk below requires you to manually decide which clusters to keep or exclude. The violin plots will help decide based on marker genes. You can also choose to annotate (as many types as you want) and skip subsetting.*
-```{r}
-#Edit this part carefully. You can add any number of types. Each cluster can only be one type. 
-type1 = c(0:15)
-name1 = "Microglia"
-type2 = 13
-name2 = "Macrophage"
 
-
-#Initialize the cluster levels as a vector and replace the cluster levels with the appropriate name. 
-clusters = as.factor(sobject$seurat_clusters)
-type = levels(clusters)
-type[type1+1] = name1
-type[type2+1] = name2
-levels(clusters) = type
-
-#Add a metadata column
-sobject$celltype = clusters
-
-#check the celltype assignment for accuracy
-table(sobject$celltype,sobject$seurat_clusters)
-
-#Check them against your marker genes
-VlnPlot(sobject,igenes,group.by = "celltype",pt.size = 0.01)
-
-#add a metadata column labelling each cluster
-sobject$celltypecluster = paste0(sobject$celltype,"-",sobject$seurat_clusters)
-
-#show clustering
-DimPlot(sobject,group.by = "celltype",label = T)+NoLegend()
-```
 *****
 Save the tree
 ```{r}
@@ -270,6 +244,7 @@ Save the clustered dataset. Overwrite the existing, subset dataset.
 save(sobject,file = file.path(dir,datafolder,filename))
 ```
 *************************************
+
 
 Block to print multiple graphs: 
 ```{r}
@@ -311,10 +286,12 @@ Idents(sobject) = column
 markers_all <- FindAllMarkers(
     object = sobject,
     features = VariableFeatures(sobject),
+    assay = "RNA",
+    slot = "counts",
     test.use = "MAST",
     only.pos = FALSE, 
     min.pct = 0.05, 
-    logfc.threshold = 0.0
+    logfc.threshold = 0.2
 )
 ```
 
@@ -332,7 +309,7 @@ markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_all_marke
 markers = markers[markers$p_val_adj<pval,]
 
 #pick only positives, or restrict by min/max pct expression using pct1/2
-markers = markers[markers$avg_logFC > lfc,] 
+markers = markers[markers$avg_log2FC > lfc,] 
 markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
 
 #If you want, select markers that define a single cluster
@@ -340,7 +317,7 @@ if (single){markers <- markers[markers$gene %in% names(table(markers$gene))[tabl
 
 table(markers$cluster)
 
-topgenes <- markers %>% group_by(cluster) %>% top_n(ngenes, avg_logFC)
+topgenes <- markers %>% group_by(cluster) %>% top_n(hgenes, avg_log2FC)
 topgenes = topgenes[order(topgenes$cluster),]
 
 #Subset each cluster to ncells
@@ -388,98 +365,185 @@ DoHeatmap(
 )
 ```
 
-Subset the data if necessary; will only run if "keep" includes some celltype
-
-Subset the data to include only your celltypes of interest: 
 ```{r}
-if (all(keep %in% sobject$celltype)){
-  sobject = subset(sobject,subset = celltype %in% keep)
-  #check the resulting subset
-  table(sobject$celltype,sobject$seurat_clusters)
-  #subset the object by the metadata column "celltype"
-  save(sobject,file = file.path(dir,datafolder,paste0(project,"_",keep,"_subset.RData")))
+genes = unique(topgenes$gene)
+genes
+DotPlot(sobject,features = genes,group.by = "seurat_clusters",cluster.idents = T)+RotatedAxis()
+```
+```{r}
+barres = read.csv(file.path(dir,"Paz_MG_TBI/Spreadsheets/barreslab_rnaseq.csv"))
+celltype = "Neuron"
+column = 4
+barres = cbind(barres, "NeuralEnrichment" = rep(0,nrow(barres)))
+for (n in 1:nrow(barres)){
+  row = barres[n,]
+  row[c(3:9)] = as.numeric(row[c(3:9)])
+  max = max(barres[n,c(3,5:9)])
+  neuralenrichment = barres[n,4]/max
+  barres[n,"NeuralEnrichment"] = neuralenrichment
 }
-```
+neural = barres[barres$NeuralEnrichment>2,]
+neuralgenes = neural$Gene.symbol
+neuralgenes = neuralgenes[neuralgenes %in% rownames(sobject)]
+neurogenes=list()
+neurogenes[[1]] = neuralgenes
+sobject = AddModuleScore(sobject,features = neurogenes,name = "neurogenes")
 
-Conduct differential expression analysis on the celltypes (pooled)
+damgenes = read.csv("/Users/whippoorwill/Desktop/Sequencing/IL33_scRNAseq_thalamus/mmc3.csv")
+head(damgenes)
+damgenes = damgenes[damgenes$X.log10.DAM..p.value..Mann.Whitney.>5,]
+dg = damgenes[damgenes$Fold.change..DAM.to.homeostatic.microglia.>1.5,]
+dg = dg[!is.na(dg$Gene.name),]
+dg = dg$Gene.name
+dg = dg[dg %in% rownames(sobject)]
+dglist = list()
+dglist[[1]]=dg
+sobject=AddModuleScore(sobject,features = dglist,name = "DAM")
+
+ifitgenes = read.csv("/Users/whippoorwill/Desktop/Sequencing/LD_AVM02/Spreadsheets/allmarkers_vargenesMG_0501 copy 2.csv",stringsAsFactors = F)
+head(ifitgenes)
+ifitgenes = ifitgenes[ifitgenes$cluster == '8',]
+ifitgenes = ifitgenes[ifitgenes$p_val_adj<1e-5,]
+ig = ifitgenes$gene[ifitgenes$avg_logFC>0.23]
+head(ig)
+length(ig)
+ig = ig[ig %in% rownames(sobject)]
+iglist = list()
+iglist[[1]]=ig
+
+sobject=AddModuleScore(sobject,features = iglist,name = "IFN")
+
+VlnPlot(sobject,"IFN1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"DAM1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"neurogenes1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+```
 ```{r}
-column = "celltype"
-ncells = 500
+t = table(sobject$seurat_clusters,sobject$sample_description)
+b = apply(t,MARGIN = 2,function(x)x/sum(x)*100)
+b = apply(b,MARGIN = 1,function(x)x/sum(x)*100)
+b
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,150),xlim = c(0,50)) + abline(h=33)
+
+setEPS()
+postscript(file.path(dir,"Plots",paste0(project,"_barplot_normalized2x.eps")))
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,150),xlim = c(0,50)) + abline(h=33)
+dev.off()
 ```
 
-```{r,eval = FALSE}
-Idents(sobject) = column
-markers_all = FindAllMarkers(
-  object = sobject,
-  features = rownames(sobject),
-  test.use = "MAST", 
-  only.pos = FALSE, 
-  min.pct = 0.15, 
-  logfc.threshold = 0.0)
-write.csv(markers_all,file = file.path(dir,"Spreadsheets",paste0(iterationname,"_",column,"_markers.csv")))
+
+```{r,eval=F,results = 'hide'}
+save(sobject,file = file.path(dir,datafolder,filename))
 ```
 
 ```{r}
+# install from CRAN
+#install.packages("gprofiler2")
+# load the package
+library(gprofiler2)
+
 #read in a de gene file
-markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_",column,"_markers.csv")),stringsAsFactors = F)
+markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_all_markers.csv")),stringsAsFactors = F)
 
 #Select only the genes that pass thresholds
 markers = markers[markers$p_val_adj<pval,]
 
 #pick only positives, or restrict by min/max pct expression using pct1/2
-markers = markers[markers$avg_logFC > lfc,] 
+markers = markers[markers$avg_log2FC > lfc,] 
 markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
 
-#If you want, select markers that define a single cluster
-if (single){markers <- markers[markers$gene %in% names(table(markers$gene))[table(markers$gene) == 1],] }
+for (cluster in names(table(markers$cluster))){
+  deg = markers[markers$cluster == cluster,]
+  gp_up = gost(deg$gene, organism = "mmusculus",evcodes = T,sources = c("GO","KEGG"), custom_bg = rownames(sobject))
+  
+  if (!is.null(gp_up)){
+    results = as.data.frame(gp_up$result)
+    results = apply(results,2,as.character)
+    write.csv(results,file = file.path(dir,"Spreadsheets",paste0("gprofiler_upregulated_cluster_",cluster,".csv")))
+    print(cluster)
+    print(gostplot(gp_up, interactive = TRUE))
 
-table(markers$cluster)
-
-topgenes <- markers %>% group_by(cluster) %>% top_n(hgenes, avg_logFC)
-topgenes = topgenes[order(topgenes$cluster),]
-
-#Subset each cluster to ncells
-cellnames = sobject@meta.data[,column]
-names(cellnames) = colnames(sobject)
-clusters = levels(as.factor(cellnames))
-newcellnames = NULL
-for (cluster in clusters){
-  n = length(cellnames[cellnames == cluster])
-  if (n > ncells){n = ncells}
-  newcluster = sample(cellnames[cellnames == cluster],n, replace = F)
-  newcellnames = c(newcellnames,newcluster)
+  }
+  
 }
-
-#check
-table(newcellnames)
-
-#Make heatmap
-setEPS()
-postscript(file.path(dir,"Heatmaps", paste0(iterationname,"_",column,"_",pval,"_ncells",ncells,"heatmap.eps")))
-DoHeatmap(
-    object = sobject, 
-    features = c(topgenes$gene),
-    cells = names(newcellnames),
-    group.by = column,
-    size = 5,
-    label = T,
-    draw.lines = T
-)
-
-dev.off()
-```
-
-Print heatmap to console
-
-```{r}
-DoHeatmap(
-    object = sobject, 
-    features = c(topgenes$gene),
-    cells = names(newcellnames),
-    group.by = column,
-    size = 5,
-    label = T,
-    draw.lines = T
-)
 ```
 ****
+
+```{r}
+FeaturePlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),ncol = 3)
+VlnPlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),group.by = "seurat_clusters")
+
+allcells = sobject$sample_description
+cellnames = c()
+for (s in names(table(sobject$sample_description))){
+  newcells = sample(allcells[allcells == s],3000)
+  newcells = newcells
+  cellnames = c(cellnames,newcells)
+}
+table(cellnames)
+newobject = subset(sobject,cells = names(cellnames))
+DimPlot(newobject,group.by = "seurat_clusters",split.by = "sample_description")
+
+VlnPlot(sobject,"Irf1",group.by = "sample_description")
+VlnPlot(sobject,"Stat1",group.by = "sample_description")
+VlnPlot(sobject,c("H2-K1","H2-Ke6","H2-Oa","H2-DMa","H2-DMb2","H2-DMb1","H2-Ob","H2-Aa","H2-Eb1"),group.by = "sample_description")
+VlnPlot(sobject,"Rela",group.by = "sample_description")
+```
+
+```{r,eval = F, results = 'hide'}
+Idents(sobject) = "sample_description"
+markers = FindMarkers(sobject,ident.1 = "TBI-aCD4",ident.2 = "TBI-IgG",group.by = "sample_description",assay = "RNA",slot = "counts",test.use = "MAST",min.pct = 0.05,logfc.threshold = 0.0)
+markers$gene = rownames(markers)
+write.csv(markers,file = file.path(dir,"Spreadsheets","microglia_CD4vsIgG_TBI_markers.csv"))
+```
+
+
+```{r}
+markers = read.csv(file = file.path(dir,"Spreadsheets","microglia_CD4vsIgG_TBI_markers.csv"))
+markers = markers[markers$p_val_adj<pval,]
+markers = markers[order(markers$avg_log2FC,decreasing = T),]
+topgenes = markers$X[1:10]
+topgenes = c(topgenes,markers$X[(nrow(markers)-10):nrow(markers)])
+```
+
+
+```{r,eval = F, results = 'hide'}
+markers = FindMarkers(sobject,ident.1 = "TBI-IgG",ident.2 = "Control-IgG",group.by = "sample_description",assay = "RNA",slot = "counts",test.use = "MAST",min.pct = 0.05,logfc.threshold = 0.0)
+markers$gene = rownames(markers)
+write.csv(markers,file = file.path(dir,"Spreadsheets","microglia_TBIvsControl_markers.csv"))
+```
+
+
+```{r}
+markers = read.csv(file = file.path(dir,"Spreadsheets","microglia_TBIvsControl_markers.csv"))
+markers = markers[markers$p_val_adj<pval,]
+markers = markers[order(markers$avg_log2FC,decreasing = T),]
+topgenes = c(markers$X[1:10],topgenes)
+topgenes = c(topgenes,markers$X[(nrow(markers)-10):nrow(markers)])
+
+```
+
+
+```{r}
+DotPlot(sobject,features = unique(topgenes),group.by = "sample_description",cluster.idents = T)+RotatedAxis()
+
+```
+```{r}
+
+allcells = sobject$sample_description
+cellnames = c()
+for (s in names(table(sobject$sample_description))){
+  newcells = sample(allcells[allcells == s],100)
+  newcells = newcells
+  cellnames = c(cellnames,newcells)
+}
+
+DoHeatmap(
+    object = sobject, 
+    features = topgenes,
+    cells = names(cellnames),
+    group.by = "sample_description",
+    size = 5,
+    label = T,
+    draw.lines = T
+)
+```

@@ -1,0 +1,322 @@
+---
+title: "Paz_Thal_MG_ClusteringGraphs_2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+#install.packages("BiocManager")
+#BiocManager::install("Seurat")
+#BiocManager::install("ggplot2")
+#install.packages("dplr")
+#install.packages("ape")
+#install.packages("cowplot")
+#install.packages("Matrix")
+```
+
+Load packages into your workspace. 
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(ape)
+library(cowplot)
+library(Matrix)
+
+#find out where you are
+getwd()
+```
+
+*Edit the following code every time* 
+and make sure the folders "QC" and "Plots" and "Heatmaps" and "Trees" and "Spreadsheets" and "Data/Seurat" are present in the "dir" folder
+```{r}
+#Specify your preferred directory for all input + output
+dir= "/Users/whippoorwill/Desktop/Sequencing/Paz_Thalamus_2022/"
+
+#Specify exactly where your seurat files live
+datafolder = "Data/Seurat"
+
+#set up folders
+QCfolder = "QC"
+Plotfolder = "Plots"
+
+#This name needs to match your project name within the seurat object
+project<-"Microglia_Paz_MG_Thal"
+
+
+#the data file you want to open
+filename = paste0(project,"_filtered.RData")
+
+#Specify your organism; please capitalize the first letter (i.e. "Mouse", "Human","Zebrafish","Rat")
+organism = "Mouse"
+
+#metrics you want to look at for QC
+m = c("nCount_RNA","nFeature_RNA","percent.mito","percent.ribo")
+
+#You can add in housekeeping genes if you want them to be scaled always; otherwise set to "NULL"
+add.genes = NULL
+
+#Choose what to regress out - could be age, sex, or any metadata column
+regress = c("percent.mito")
+
+#Decide whether to use SCtransform (can take a long time with big datasets; generally recommended)
+sct = TRUE
+
+#How many genes do you want scaled to use for UMAP/clustering? 
+ngenes = 2000
+
+#Which principal components do you want to calculate on? This is a default setting, change if one of the pc's is for something you think is a technical error (i.e. HSP, RP, etc)
+pcs = c(1:30)
+
+#clustering resolution; the last number will be saved as "seurat_clusters" in metadata
+res = c(1.5,1.0,0.5)
+
+#Important genes to determine your cells of interest
+igenes = c("Slc1a3","Pecam1","Rbfox3","Pdgfra","Mbp","Cspg4","P2ry12","Hexb","Ptprc")
+
+#metadata dimensions you want to cluster on
+dims = c("seurat_clusters","sample_description","treatment","condition","fulldescription")
+
+#edit to include all desired celltypes to subset on later; if not subsetting, set to "all"
+keep = "microglia"
+
+#make a unique name; maybe this is the celltype you've already subset, or the age you're looking at, etc. 
+iterationname = "mg1"
+
+#Establish cutoffs for heatmaps
+pval = 1e-8 #max p-value for significance
+lfc = 0.2 #minimum log fold change
+minpct = 0 #if you want to subset by percent cells in that cluster expressing the gene
+maxpct = 1
+single = F #should each gene be a marker of a single cluster only
+hgenes = 3 #how many genes should be in the heatmap per cluster
+ncells = 100 #max # of cells per heatmap column
+column = "seurat_clusters" #division you care about
+
+#Variance partition: Remove genes only associated with a technical variable or sex of the mouse
+variance = F
+```
+
+
+Load in your filtered dataset
+```{r}
+load(file.path(dir,datafolder,filename))
+```
+
+Number of cells per sample: 
+```{r}
+table(sobject$fulldescription)
+```
+
+Plot important objects; check parameters before moving forward, evaluate QC, clustering
+```{r}
+for (dim in dims){
+  print(DimPlot(sobject,group.by = dim, label = T))
+}
+
+FeaturePlot(sobject,igenes)
+FeaturePlot(sobject,m)
+
+VlnPlot(sobject,igenes,sort = "increasing",pt.size = 0.01)
+
+#Build a clustering tree
+Idents(sobject) = "seurat_clusters"
+sobject= BuildClusterTree(sobject,dims = pcs)
+tree = sobject@tools$BuildClusterTree
+plot.phylo(tree, use.edge.length = T, direction = "rightwards")
+```
+
+
+```{r}
+#read in a de gene file
+markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_all_markers.csv")),stringsAsFactors = F)
+
+#Select only the genes that pass thresholds
+markers = markers[markers$p_val_adj<pval,]
+
+#pick only positives, or restrict by min/max pct expression using pct1/2
+markers = markers[markers$avg_log2FC > lfc,] 
+markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
+
+#If you want, select markers that define a single cluster
+if (single){markers <- markers[markers$gene %in% names(table(markers$gene))[table(markers$gene) == 1],] }
+
+table(markers$cluster)
+
+topgenes <- markers %>% group_by(cluster) %>% top_n(hgenes, avg_log2FC)
+topgenes = topgenes[order(topgenes$cluster),]
+
+#Subset each cluster to ncells
+cellnames = sobject@meta.data[,column]
+names(cellnames) = colnames(sobject)
+clusters = levels(as.factor(cellnames))
+newcellnames = NULL
+for (cluster in clusters){
+  n = length(cellnames[cellnames == cluster])
+  if (n > ncells){n = ncells}
+  newcluster = sample(cellnames[cellnames == cluster],n, replace = F)
+  newcellnames = c(newcellnames,newcluster)
+}
+```
+
+Heatmap showing the top 3 differentially expressed genes by log fold change for each cluster. 
+```{r}
+DoHeatmap(
+    object = sobject, 
+    features = c(topgenes$gene),
+    cells = names(newcellnames),
+    group.by = column,
+    size = 5,
+    label = T,
+    draw.lines = T
+)
+```
+
+Dotplot showing the top 3 differentially expressed genes by log fold change for each cluster. 
+```{r}
+genes = unique(topgenes$gene)
+DotPlot(sobject,features = genes,group.by = "seurat_clusters",cluster.idents = T)+RotatedAxis()
+```
+
+Violin plots showing enrichment of the type-I interferon response I characterized ("IFN1") and the DAM response shown by Keren-Shaul 2017 ("DAM1") and neural genes ("neurogenes1") to look for engulfment of neurons. 
+
+Split by cluster
+```{r}
+VlnPlot(sobject,"IFN1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"DAM1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"neurogenes1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+```
+
+Split by sample ID
+
+```{r}
+VlnPlot(sobject,"IFN1",group.by = "sample_description",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"DAM1",group.by = "sample_description",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"neurogenes1",group.by = "sample_description",pt.size = 0)+NoLegend()
+```
+
+Barplot showing the relative makeup of each cluster by sample. The line is at 33%, and if there were no shift at all in cluster identity between conditions, every bar would be at 33%. Any bar above the line means that cluster is enriched in that sample. 
+```{r}
+t = table(sobject$seurat_clusters,sobject$sample_description)
+b = apply(t,MARGIN = 2,function(x)x/sum(x)*100)
+b = apply(b,MARGIN = 1,function(x)x/sum(x)*100)
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,150),xlim = c(0,50),xlab = "Cluster",ylab = "% of cluster") + abline(h=33)
+```
+
+Differential Gene Expression analysis and KEGG enrichment by cluster
+```{r}
+# install from CRAN
+#install.packages("gprofiler2")
+# load the package
+library(gprofiler2)
+
+#read in a de gene file
+markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_all_markers.csv")),stringsAsFactors = F)
+
+#Select only the genes that pass thresholds
+markers = markers[markers$p_val_adj<pval,]
+
+#pick only positives, or restrict by min/max pct expression using pct1/2
+markers = markers[markers$avg_log2FC > lfc,] 
+markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
+
+plotlist = list()
+for (cluster in names(table(markers$cluster))){
+  deg = markers[markers$cluster == cluster,]
+  gp_up = gost(deg$gene, organism = "mmusculus",evcodes = T,sources = c("KEGG"), custom_bg = rownames(sobject))
+  
+  if (!is.null(gp_up)){
+    plotlist[[cluster]] = gostplot(gp_up, interactive = TRUE)
+  }
+}
+names(plotlist)
+plotlist[['1']]
+plotlist[['2']]
+plotlist[['3']]
+plotlist[['4']]
+plotlist[['6']]
+plotlist[['9']]
+plotlist[['10']]
+```
+****
+
+```{r}
+FeaturePlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),ncol = 3)
+VlnPlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),group.by = "seurat_clusters")
+
+allcells = sobject$sample_description
+cellnames = c()
+for (s in names(table(sobject$sample_description))){
+  newcells = sample(allcells[allcells == s],3000)
+  newcells = newcells
+  cellnames = c(cellnames,newcells)
+}
+table(cellnames)
+newobject = subset(sobject,cells = names(cellnames))
+DimPlot(newobject,group.by = "seurat_clusters",split.by = "sample_description")
+
+VlnPlot(sobject,"Irf1",group.by = "sample_description")
+VlnPlot(sobject,"Stat1",group.by = "sample_description")
+VlnPlot(sobject,c("H2-K1","H2-Ab1","H2-Oa"),group.by = "sample_description")
+VlnPlot(sobject,c("H2-DMa","H2-DMb2","H2-DMb1"),group.by = "sample_description")
+
+VlnPlot(sobject,c("H2-Ob","H2-Aa","H2-Eb1"),group.by = "sample_description")
+
+VlnPlot(sobject,"Rela",group.by = "sample_description")
+```
+Analysis of genes differentially expressed between samples
+```{r}
+markers = read.csv(file = file.path(dir,"Spreadsheets","microglia_CD4vsIgG_TBI_markers.csv"))
+markers = markers[markers$p_val_adj<pval,]
+markers = markers[order(markers$avg_log2FC,decreasing = T),]
+topgenes = markers$X[1:5]
+topgenes = c(topgenes,markers$X[(nrow(markers)-5):nrow(markers)])
+```
+
+```{r}
+markers = read.csv(file = file.path(dir,"Spreadsheets","microglia_TBIvsControl_markers.csv"))
+markers = markers[markers$p_val_adj<pval,]
+markers = markers[order(markers$avg_log2FC,decreasing = T),]
+topgenes = c(markers$X[1:5],topgenes)
+topgenes = c(topgenes,markers$X[(nrow(markers)-5):nrow(markers)])
+
+```
+
+Dotplot showing the most up- and down- regulated genes from these comparisons: 
+1) aCD4 vs IgG after TBI
+2) TBI vs Sham
+
+```{r}
+DotPlot(sobject,features = unique(topgenes),group.by = "sample_description",cluster.idents = T)+RotatedAxis()
+
+```
+
+Heatmap showing the most up- and down- regulated genes from these comparisons. Each column is a cell, and 100 cells are shown per sample. 
+1) aCD4 vs IgG after TBI
+2) TBI vs Sham
+```{r}
+
+allcells = sobject$sample_description
+cellnames = c()
+for (s in names(table(sobject$sample_description))){
+  newcells = sample(allcells[allcells == s],100)
+  newcells = newcells
+  cellnames = c(cellnames,newcells)
+}
+
+DoHeatmap(
+    object = sobject, 
+    features = topgenes,
+    cells = names(cellnames),
+    group.by = "sample_description",
+    size = 5,
+    label = T,
+    draw.lines = T
+)
+```
