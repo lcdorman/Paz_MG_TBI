@@ -63,7 +63,7 @@ m = c("nCount_RNA","nFeature_RNA","percent.mito","percent.ribo")
 add.genes = NULL
 
 #Choose what to regress out - could be age, sex, or any metadata column
-regress = c("percent.mito")
+regress = c("percent.mito","nFeature_RNA")
 
 #Decide whether to use SCtransform (can take a long time with big datasets; generally recommended)
 sct = TRUE
@@ -82,9 +82,6 @@ igenes = c("Slc1a3","Pecam1","Rbfox3","Pdgfra","Mbp","Cspg4","P2ry12","Hexb","Pt
 
 #metadata dimensions you want to cluster on
 dims = c("seurat_clusters","sample_description","treatment","condition","fulldescription")
-
-#edit to include all desired celltypes to subset on later; if not subsetting, set to "all"
-keep = "microglia"
 
 #make a unique name; maybe this is the celltype you've already subset, or the age you're looking at, etc. 
 iterationname = "mg1"
@@ -142,21 +139,7 @@ PrintSeuratGraph = function(namecard = "a",seurat_object = sobject,graphtype = "
 
 Find variable features, normalize, scale, run PCA, clustering, umap
 The following is the standard method of normalization and scaling. Interchangeable with the next chunk. Run both, you should have already specified which to use with "sct = T or F". Will take 5-20 minutes to run. 
-```{r,results = 'hide',eval = FALSE}
-if (!sct){
-  sobject <- NormalizeData(sobject,normalization.method = "LogNormalize", scale.factor = 10000)
-  sobject<-FindVariableFeatures(sobject, selection.method = "vst", nfeatures = ngenes)
-  
-  all.genes<-rownames(sobject)
-  var.genes = VariableFeatures(sobject)
-  add.genes = add.genes[!add.genes %in% var.genes]
-  
-  any(add.genes %in% var.genes)
-  scalegenes = c(var.genes,add.genes)
-  VariableFeatures(sobject) = scalegenes
-  sobject<-ScaleData(sobject,features = VariableFeatures(sobject), vars.to.regress = regress)
-}
-```
+
 
 Alternative: SCTransform (great for smaller datasets)
 ```{r, results='hide',eval = FALSE}
@@ -194,7 +177,7 @@ Once you are satisfied with pc's, run clustering:
 ```{r}
 sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F)
 sobject<-FindNeighbors(sobject,dims=pcs,verbose=F)
-sobject<-FindClusters(sobject,verbose=F,resolution = 0.3)
+sobject<-FindClusters(sobject,verbose=F,resolution = 0.5)
 ```
 
 Plot important objects; check parameters before moving forward, evaluate QC, clustering
@@ -237,6 +220,8 @@ plot.phylo(tree, use.edge.length = T, direction = "rightwards")
 dev.off()
 
 plot.phylo(tree, use.edge.length = T, direction = "rightwards")
+
+VlnPlot(sobject,"percent.mito",group.by = "seurat_clusters")+NoLegend()
 ```
 
 Save the clustered dataset. Overwrite the existing, subset dataset. 
@@ -288,7 +273,7 @@ markers_all <- FindAllMarkers(
     features = VariableFeatures(sobject),
     assay = "RNA",
     slot = "counts",
-    test.use = "MAST",
+    test.use = "DESeq2",
     only.pos = FALSE, 
     min.pct = 0.05, 
     logfc.threshold = 0.2
@@ -306,7 +291,7 @@ Make the heatmap
 markers = read.csv(file.path(dir,"Spreadsheets",paste0(iterationname,"_all_markers.csv")),stringsAsFactors = F)
 
 #Select only the genes that pass thresholds
-markers = markers[markers$p_val_adj<pval,]
+markers = markers[markers$p_val_adj < pval,]
 
 #pick only positives, or restrict by min/max pct expression using pct1/2
 markers = markers[markers$avg_log2FC > lfc,] 
@@ -413,10 +398,20 @@ iglist[[1]]=ig
 
 sobject=AddModuleScore(sobject,features = iglist,name = "IFN")
 
+mhc = c("H2-Ab1","H2-Aa","H2-Eb1","H2-Eb2") #H2-Ea
+mhclist = list(mhc)
+sobject = AddModuleScore(sobject,features = mhclist,name = "MhcII")
+
 VlnPlot(sobject,"IFN1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"MhcII1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
 VlnPlot(sobject,"DAM1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
 VlnPlot(sobject,"neurogenes1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
 ```
+
+
+
+
+
 ```{r}
 t = table(sobject$seurat_clusters,sobject$sample_description)
 b = apply(t,MARGIN = 2,function(x)x/sum(x)*100)
@@ -469,13 +464,13 @@ for (cluster in names(table(markers$cluster))){
 ****
 
 ```{r}
-FeaturePlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),ncol = 3)
-VlnPlot(sobject,c("Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),group.by = "seurat_clusters")
+FeaturePlot(sobject,c("Hexb","Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),ncol = 3)
+VlnPlot(sobject,c("Hexb","Cd68","P2ry12","Ifitm3","Spp1","H2-Ab1"),group.by = "seurat_clusters")
 
 allcells = sobject$sample_description
 cellnames = c()
 for (s in names(table(sobject$sample_description))){
-  newcells = sample(allcells[allcells == s],3000)
+  newcells = sample(allcells[allcells == s],2500)
   newcells = newcells
   cellnames = c(cellnames,newcells)
 }
@@ -547,3 +542,4 @@ DoHeatmap(
     draw.lines = T
 )
 ```
+

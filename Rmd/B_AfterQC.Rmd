@@ -136,23 +136,6 @@ PrintSeuratGraph = function(namecard = "a",seurat_object = sobject,graphtype = "
 
 
 
-Find variable features, normalize, scale, run PCA, clustering, umap
-The following is the standard method of normalization and scaling. Interchangeable with the next chunk. Run both, you should have already specified which to use with "sct = T or F". Will take 5-20 minutes to run. 
-```{r,results = 'hide',eval = FALSE}
-if (!sct){
-  sobject <- NormalizeData(sobject,normalization.method = "LogNormalize", scale.factor = 10000)
-  sobject<-FindVariableFeatures(sobject, selection.method = "vst", nfeatures = ngenes)
-  
-  all.genes<-rownames(sobject)
-  var.genes = VariableFeatures(sobject)
-  add.genes = add.genes[!add.genes %in% var.genes]
-  
-  any(add.genes %in% var.genes)
-  scalegenes = c(var.genes,add.genes)
-  VariableFeatures(sobject) = scalegenes
-  sobject<-ScaleData(sobject,features = VariableFeatures(sobject), vars.to.regress = regress)
-}
-```
 
 Alternative: SCTransform (great for smaller datasets)
 ```{r, results='hide',eval = FALSE}
@@ -190,7 +173,7 @@ Once you are satisfied with pc's, run clustering:
 ```{r}
 sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F)
 sobject<-FindNeighbors(sobject,dims=pcs,verbose=F)
-sobject<-FindClusters(sobject,verbose=F,resolution = res)
+sobject<-FindClusters(sobject,verbose=F,resolution = 1.5)
 ```
 
 Plot important objects; check parameters before moving forward, evaluate QC, clustering
@@ -217,16 +200,14 @@ If you are happy with the QC, you can move on to either subdividing further to i
 *Note that the chunk below requires you to manually decide which clusters to keep or exclude. The violin plots will help decide based on marker genes. You can also choose to annotate (as many types as you want) and skip subsetting.*
 ```{r}
 #Edit this part carefully. You can add any number of types. Each cluster can only be one type. 
-type1 = c(0:15)
+type1 = c(0:24)
 name1 = "Microglia"
-type2 = c(10)
+type2 = c(19)
 name2 = "Astrocytes"
-type3 = c(8)
+type3 = c(20,14)
 name3 = "Oligodendrocytes"
-type4 = 12
-name4 = "Endothelial"
-type5 = 13
-name5 = "Macrophage"
+type4 = c(6,23)
+name4 = "mito"
 
 
 #Initialize the cluster levels as a vector and replace the cluster levels with the appropriate name. 
@@ -236,7 +217,6 @@ type[type1+1] = name1
 type[type2+1] = name2
 type[type3+1] = name3
 type[type4+1] = name4
-type[type5+1] = name5
 levels(clusters) = type
 
 #Add a metadata column
@@ -254,11 +234,26 @@ sobject$celltypecluster = paste0(sobject$celltype,"-",sobject$seurat_clusters)
 #show clustering
 DimPlot(sobject,group.by = "celltype",label = T)+NoLegend()
 ```
+```{r}
+sobject$mbp = GetAssayData(sobject,assay = "SCT",slot = "data")["Mbp",]
+
+olig_cells = colnames(sobject)[sobject$mbp > 2]
+length(olig_cells)
+
+head(olig_cells)
+sobject$celltype[olig_cells[1]]
+sobject$celltype[olig_cells]="Oligodendrocytes"
+
+DimPlot(sobject,group.by= "celltype")
+VlnPlot(sobject,"Mbp",group.by = "celltype")
+```
+
+
 *****
 Save the tree
 ```{r}
 Idents(sobject) = column
-sobject= BuildClusterTree(sobject,dims = pcs)
+sobject= BuildClusterTree(sobject,reduction = "umap")
 tree = sobject@tools$BuildClusterTree
 setEPS()
 postscript(file.path(dir,"Trees",paste0(project,"_tree_",iterationname,".eps")))

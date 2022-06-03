@@ -267,7 +267,7 @@ for (i in 1:(length(m)-1)){
 Set limits based on the graphs
 ```{r}
 mlo = 0.0000
-mhi = 10
+mhi = 5
 clo = 4000
 chi = 20000
 flo = 2000 
