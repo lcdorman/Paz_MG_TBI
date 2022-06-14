@@ -173,7 +173,7 @@ Once you are satisfied with pc's, run clustering:
 ```{r}
 sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F)
 sobject<-FindNeighbors(sobject,dims=pcs,verbose=F)
-sobject<-FindClusters(sobject,verbose=F,resolution = 1.5)
+sobject<-FindClusters(sobject,verbose=F,resolution = 1)
 ```
 
 Plot important objects; check parameters before moving forward, evaluate QC, clustering
@@ -192,6 +192,8 @@ Idents(sobject) = "seurat_clusters"
 sobject= BuildClusterTree(sobject,dims = pcs)
 tree = sobject@tools$BuildClusterTree
 plot.phylo(tree, use.edge.length = T, direction = "rightwards")
+
+VlnPlot(sobject,c("Mbp","Hexb","Aif1","Slc1a3","percent.mito"),group.by = "seurat_clusters",pt.size = 0,ncol = 2,sort = T)
 ```
 ****
 
@@ -202,12 +204,12 @@ If you are happy with the QC, you can move on to either subdividing further to i
 #Edit this part carefully. You can add any number of types. Each cluster can only be one type. 
 type1 = c(0:24)
 name1 = "Microglia"
-type2 = c(19)
+type2 = c(15)
 name2 = "Astrocytes"
-type3 = c(20,14)
+type3 = c(7)
 name3 = "Oligodendrocytes"
-type4 = c(6,23)
-name4 = "mito"
+#type4 = c()
+#name4 = "mito"
 
 
 #Initialize the cluster levels as a vector and replace the cluster levels with the appropriate name. 
@@ -216,7 +218,7 @@ type = levels(clusters)
 type[type1+1] = name1
 type[type2+1] = name2
 type[type3+1] = name3
-type[type4+1] = name4
+#type[type4+1] = name4
 levels(clusters) = type
 
 #Add a metadata column
@@ -228,12 +230,33 @@ table(sobject$celltype,sobject$seurat_clusters)
 #Check them against your marker genes
 VlnPlot(sobject,igenes,group.by = "celltype",pt.size = 0.01)
 
+for (gene in c("Mbp","Hexb","Aif1","Slc1a3")){
+  setEPS()
+  postscript(file.path(dir,"QC",paste0(gene,"_initial_clustering_vln.eps")))
+  print(VlnPlot(sobject,gene,group.by = "seurat_clusters",pt.size = 0,ncol = 2) + stat_summary(fun = "median",geom = "point",shape = 95, size = 5, col = "black") + NoLegend())
+dev.off()
+}
+
 #add a metadata column labelling each cluster
 sobject$celltypecluster = paste0(sobject$celltype,"-",sobject$seurat_clusters)
 
-#show clustering
+setEPS()
+postscript(file.path(dir,"QC","celltype_labels_dimplot.eps"))
 DimPlot(sobject,group.by = "celltype",label = T)+NoLegend()
+dev.off()
+
+setEPS()
+postscript(file.path(dir,"QC","cluster_labels_dimplot.eps"))
+DimPlot(sobject,group.by = "seurat_clusters",label = T)+NoLegend()
+dev.off()
+
+setEPS()
+postscript(file.path(dir,"QC","celltype_genes_featureplot.eps"))
+FeaturePlot(sobject,c("Mbp","Hexb","Aif1","Slc1a3"))
+dev.off()
 ```
+
+Selected out any cells that have higher than "2" expression of mbp
 ```{r}
 sobject$mbp = GetAssayData(sobject,assay = "SCT",slot = "data")["Mbp",]
 
@@ -246,6 +269,12 @@ sobject$celltype[olig_cells]="Oligodendrocytes"
 
 DimPlot(sobject,group.by= "celltype")
 VlnPlot(sobject,"Mbp",group.by = "celltype")
+
+setEPS()
+postscript(file.path(dir,"QC","celltype_labels_dimplot.eps"))
+DimPlot(sobject,group.by = "celltype",label = T)+NoLegend()
+dev.off()
+
 ```
 
 

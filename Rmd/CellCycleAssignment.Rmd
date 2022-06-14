@@ -106,54 +106,7 @@ DimPlot(sobject,group.by = "seurat_clusters")
 save(sobject,file = file.path(dir,datafolder,filename)))
 ```
 
-
-You can regress out the phase genes
 ```{r}
-regress = c("S.Score","G2M.Score","nCount_RNA","percent.mito")
-columns = c("sample_description","seurat_clusters","celltypecluster","condition","age","Phase")
-```
-
-
-```{r,eval = FALSE}
-#run PCA on only the cell cycle genes
-sobject2 <- RunPCA(object = sobject, pc.genes = c(s.genes, g2m.genes), do.print = FALSE, maxit=10000)
-
-#cell cycle only
-PCAPlot(object = sobject2)
-
-#original
-PCAPlot(object = sobject)
-
-#regress out cell cycle variables
-sobject2 <- ScaleData(object = sobject2, features = VariableFeatures(sobject), vars.to.regress = regress)
-
-# Now, a PCA on the variable genes no longer returns components associated
-# with cell cycle
-sobject2 <- RunPCA(object = sobject2, features = VariableFeatures(sobject), genes.print = 10)
-PCAPlot(object = sobject2)
-
-#remake umap with new calculations without cell cycle
-sobject2@reductions$UMAP<-NULL
-sobject2<-RunUMAP(sobject2,reduction = "pca",dims = 1:30, verbose = F)
-sobject2<-FindNeighbors(sobject2,dims=1:30,verbose=F)
-set.seed(1)
-sobject2<-FindClusters(sobject2,verbose=F,resolution = 0.5)
-```
-
-```{r,eval = F}
-load(file.path(dir,datafolder, paste0(name,"_cellcycleregressed.RData")))
-```
-
-```{r,eval = F}
-#make plots without cell cycle
-for (column in columns){
-  print(DimPlot(object = sobject2, group.by=column, pt.size=0.5,label = T))
-}
-```
-
-
-```{r,eval = FALSE}
-#save seurat object with cell cycle scoring
-save(sobject2,file = file.path(dir,datafolder,paste0(name,"_cellcycleregressed.RData")))
+genes=c("Trim25", "Itch", "Smurf1", "Smurf2", "March5", "Rnf5", "Pcbp1", "Pcbp2", "Tax1bp1", "Ndfip1", "Otud1","Nedd4","Faf1","Rac1","Ttll12") 
 ```
 
