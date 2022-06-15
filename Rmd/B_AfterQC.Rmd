@@ -307,3 +307,12 @@ filename = paste0(Project(sobject),"_filtered.RData")
 save(sobject,file = file.path(dir,datafolder,filename))
 ```
 
+Methods: 
+
+Initial resolution = 1
+Regress % mito, nFeature RNA, remove sex genes
+Keep microglia only (remove 15 [astro] and 7 [oligo])
+Remove all cells with mbp > 2 (assuming some myelin contamination, wanted to clean up)
+Recluster, same regression, remove sex genes
+resolution 0.5
+Combined H1 and H2 groups of clusters: a) very few upregulated genes (<5 for 5,6,7,9) b) more closely related than the DAM clusters were to each other 

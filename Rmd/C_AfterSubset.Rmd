@@ -976,14 +976,4 @@ FeaturePlot(damobject,"DAM_Stage_2",split.by = "names")
 FeaturePlot(damobject,d1,split.by = "names")
 FeaturePlot(damobject,d2,split.by = "names")
 ```
-metadata file
-
-```{r}
-metadata = sobject@meta.data
-umap = sobject@reductions$umap@cell.embeddings
-
-metadata = cbind(metadata,umap)
-
-write.csv(metadata,file = file.path(dir,"Spreadsheets","metadata.csv"),quote = F)
-```
 
