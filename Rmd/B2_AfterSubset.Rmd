@@ -148,6 +148,14 @@ if (sct){
 }
 ```
 
+```{r}
+groups = sobject$sample_description
+groups[groups == "TBI-IgG"] = "TBI-abIgG"
+sobject$sample_description = groups
+
+sobject$fulldescription = paste0(sobject$sex,"_",sobject$sample_description)
+```
+
 ******
 
 Show most variable genes
@@ -177,7 +185,7 @@ Once you are satisfied with pc's, run clustering:
 ```{r}
 sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F)
 sobject<-FindNeighbors(sobject,dims=pcs,verbose=F)
-sobject<-FindClusters(sobject,verbose=F,resolution = 0.3)
+sobject<-FindClusters(sobject,verbose=F,resolution = 0.5)
 ```
 
 Plot important objects; check parameters before moving forward, evaluate QC, clustering
@@ -215,7 +223,7 @@ If you are happy with the QC, you can move on to either subdividing further to i
 *****
 Save the tree
 ```{r}
-Idents(sobject) = column
+Idents(sobject) = "seurat_clusters"
 sobject= BuildClusterTree(sobject,dims = pcs)
 tree = sobject@tools$BuildClusterTree
 setEPS()
@@ -277,7 +285,7 @@ markers_all <- FindAllMarkers(
     features = VariableFeatures(sobject),
     assay = "RNA",
     slot = "counts",
-    test.use = "DESeq2",
+    test.use = "MAST",
     only.pos = FALSE, 
     min.pct = 0.05, 
     logfc.threshold = 0.2
@@ -302,9 +310,10 @@ markers = markers[markers$avg_log2FC > lfc,]
 markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
 
 #If you want, select markers that define a single cluster
-if (single){markers <- markers[markers$gene %in% names(table(markers$gene))[table(markers$gene) == 1],] }
+markers_single <- markers[markers$gene %in% names(table(markers$gene))[table(markers$gene) == 1],]
 
 table(markers$cluster)
+table(markers_single$cluster)
 
 topgenes <- markers %>% group_by(cluster) %>% top_n(hgenes, avg_log2FC)
 topgenes = topgenes[order(topgenes$cluster),]
@@ -359,6 +368,8 @@ genes = unique(topgenes$gene)
 genes
 DotPlot(sobject,features = genes,group.by = "seurat_clusters",cluster.idents = T)+RotatedAxis()
 ```
+
+
 ```{r}
 barres = read.csv(file.path(dir,"Paz_MG_TBI/Spreadsheets/barreslab_rnaseq.csv"))
 celltype = "Neuron"
@@ -387,7 +398,7 @@ dg = dg$Gene.name
 dg = dg[dg %in% rownames(sobject)]
 dglist = list()
 dglist[[1]]=dg
-sobject=AddModuleScore(sobject,features = dglist,name = "DAM")
+sobject=AddModuleScore(sobject,features = dglist,name = "damsig")
 
 ifitgenes = read.csv("/Users/whippoorwill/Desktop/Sequencing/LD_AVM02/Spreadsheets/allmarkers_vargenesMG_0501 copy 2.csv",stringsAsFactors = F)
 head(ifitgenes)
@@ -407,14 +418,60 @@ mhclist = list(mhc)
 sobject = AddModuleScore(sobject,features = mhclist,name = "MhcII")
 ```
 
-
+compare DAM profiles to Dam1/Dam2 from Keren-Shaul
+make feature plots of mhc genes (class I and class II)
 ```{r}
-VlnPlot(sobject,"IFN1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
-VlnPlot(sobject,"MhcII1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
-VlnPlot(sobject,"DAM1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
-VlnPlot(sobject,"neurogenes1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+damtraj = read.csv(file.path(dir,"Paz_MG_TBI/Spreadsheets/kerenshauldamstage2.csv"),stringsAsFactors = F)
+head(damtraj)
+damtraj = damtraj[damtraj$NAME %in% rownames(sobject),]
+damtraj = damtraj[damtraj$X.log10.p.value..Mann.Whitney > 3,]
+damtraj = damtraj[!is.na(damtraj$NAME),]
+damtraj = damtraj[order(damtraj$Fold.change..Stage1.DAM.to.Stage2.DAM.,decreasing = T),]
+
+dam1 = damtraj[1:100,]
+dam2 = damtraj[(nrow(damtraj)-99):nrow(damtraj),]
+head(dam2)
+
+
+dim(dam2)
+dam1genes = dam1$NAME
+dam2genes = dam2$NAME
+
+dam = list(dam1genes,dam2genes)
+
+sobject = AddModuleScore(sobject,features = dam,name = "DAM_Stage_")
+
+FeaturePlot(sobject,c("DAM_Stage_1","DAM_Stage_2"))
+VlnPlot(sobject,c("DAM_Stage_1","DAM_Stage_2"),group.by = "seurat_clusters",sort = T)
+
+camgenes = c("Mrc1","Pf4","Ms4a7","Cbr2","Cd163")
+sobject = PercentageFeatureSet(sobject,features = camgenes,col.name = "pct_cam")
 ```
 
+
+
+```{r}
+VlnPlot(sobject,"percent.mito",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"IFN1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"MhcII1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"damsig1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,c("DAM_Stage_2"),group.by = "seurat_clusters",pt.size = 0) + NoLegend()
+VlnPlot(sobject,c("Apoe"),group.by = "seurat_clusters",pt.size = 0) + NoLegend() #up in stage 1
+VlnPlot(sobject,"neurogenes1",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"pct_cam",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+VlnPlot(sobject,"Pcna",group.by = "seurat_clusters",pt.size = 0)+NoLegend()
+plot.phylo(tree, use.edge.length = T, direction = "rightwards")
+```
+
+```{r}
+clusters = sobject$seurat_clusters
+levels(clusters) = c("H0","H1","Dam2","H3","Dam1","H5","H6","H7","IFN","H9","neuro","BAM","Cyc")
+sobject$clusters_named_all = clusters
+
+clusters = sobject$seurat_clusters
+levels(clusters) = c("H1","H1","Dam2","H2","Dam1","H1","H1","H1","IFN","H2","neuro","BAM","Cyc")
+sobject$names = clusters
+```
 
 
 
@@ -474,9 +531,7 @@ for (cluster in names(table(markers$cluster))){
 ****
 
 ```{r}
-#groups = sobject$sample_description
-#groups[groups == "TBI-IgG"] = "TBI-abIgG"
-#sobject$sample_description = groups
+
 FeaturePlot(sobject,c("Hexb","Cd68","P2ry12","Ifitm3","Apoe","H2-Ab1"),ncol = 3)
 VlnPlot(sobject,c("Hexb","Cd68","P2ry12","Ifitm3","Apoe","H2-Ab1"),group.by = "seurat_clusters")
 
@@ -571,32 +626,6 @@ DoHeatmap(
 )
 ```
 
-compare DAM profiles to Dam1/Dam2 from Keren-Shaul
-make feature plots of mhc genes (class I and class II)
-```{r}
-damtraj = read.csv(file.path(dir,"Paz_MG_TBI/Spreadsheets/kerenshauldamstage2.csv"),stringsAsFactors = F)
-head(damtraj)
-damtraj = damtraj[damtraj$NAME %in% rownames(sobject),]
-damtraj = damtraj[damtraj$X.log10.p.value..Mann.Whitney > 3,]
-damtraj = damtraj[!is.na(damtraj$NAME),]
-damtraj = damtraj[order(damtraj$Fold.change..Stage1.DAM.to.Stage2.DAM.,decreasing = T),]
-
-
-dam2 = damtraj[(nrow(damtraj)-99):nrow(damtraj),]
-head(dam2)
-
-
-dim(dam2)
-
-dam2genes = dam2$NAME
-
-dam = list(dam2genes)
-
-sobject = AddModuleScore(sobject,features = dam,name = "DAM_Stage_")
-
-FeaturePlot(sobject,c("DAM_Stage_1","DAM_Stage_2"))
-VlnPlot(sobject,c("DAM_Stage_1","DAM_Stage_2"),group.by = "seurat_clusters",sort = T)
-```
 
 
 Border macrophages from https://www.science.org/doi/10.1126/science.aat7554 
@@ -620,25 +649,13 @@ genes5 = c("Ly6c1")
 
 genes = c(genes1,genes2,genes4,genes5)
 
-setEPS()
-postscript("~/Desktop/CAM_markers_rafael.eps")
-VlnPlot(sobject,genes,group.by = "seurat_clusters")
-dev.off()
 
 
-setEPS()
-postscript("~/Desktop/microglia_markers_rafael.eps")
-VlnPlot(sobject,genes3,group.by = "seurat_clusters")
-dev.off()
+
 
 VlnPlot(sobject,"Ifitm3",group.by = "seurat_clusters")
 
-VlnPlot(sobject,"sct_Marco",group.by = "seurat_clusters")
 
-setEPS()
-postscript("~/Desktop/CAM_markers_Feature_rafael.eps")
-FeaturePlot(sobject,c("Mrc1","Cd209a","Pf4","Ms4a7","Cd163"),ncol = 2)
-dev.off()
 ```
 Name the clusters
 Dam_Stage1: Cluster 4
@@ -692,46 +709,6 @@ plot.phylo(tree, use.edge.length = T, direction = "rightwards")
 
 Complement activation
 ```{r}
-#sobject$names = as.character(sobject$names)
-genes = c("C1qa","C1qb","C1qc")
-allcells = sobject$sample_description
-cellnames = c()
-for (s in names(table(sobject$sample_description))){
-  newcells = sample(allcells[allcells == s],2500)
-  newcells = newcells
-  cellnames = c(cellnames,newcells)
-}
-table(cellnames)
-newobject = subset(sobject,cells = names(cellnames))
-FeaturePlot(newobject,genes,split.by = "sample_description",cols = c("lightgrey","lightgrey","lightgrey","lightgrey","lightgrey","red"))
-for (gene in genes){
-  print(VlnPlot(sobject,gene,group.by = "sample_description",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black"))
-}
-
-#sobject = PercentageFeatureSet(sobject,pattern = "^C1q",col.name = "C1q_pct")
-VlnPlot(sobject,"C1q_pct",group.by = "names",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
-VlnPlot(sobject,"C1q_pct",group.by = "names",split.by = "sample_description",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
-VlnPlot(sobject,"C1q_pct",group.by = "sample_description",pt.size = 0)+ stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
-```
-
-
-
-```{r,eval=F,results = 'hide'}
-save(sobject,file = file.path(dir,datafolder,filename))
-```
-
-Make violin plots for each cluster 
-```{r}
-
-```
-
-Recluster with keren-shaul data
-```{r}
-
-```
-
-Compare the three samples
-```{r}
 Idents(sobject) = "sample_description"
 markers = FindMarkers(sobject,ident.1 = "TBI-aCD4",ident.2 = "TBI-abIgG",group.by = "sample_description",assay = "RNA",slot = "counts",logfc.threshold = 0.25,min.pct = 0.05,test.use = "MAST")
 write.csv(markers,file = file.path(dir,"Spreadsheets","markers_aCD4vsIgG_mast.csv"))
@@ -755,6 +732,44 @@ Idents(sobject) = "names"
 "C1qa" %in% markers$gene
 markers[markers$gene %in% c("C1qa","C1qb","C1qc"),]
 
+#sobject$names = as.character(sobject$names)
+genes = c("C1qa","C1qb","C1qc")
+allcells = sobject$sample_description
+cellnames = c()
+for (s in names(table(sobject$sample_description))){
+  newcells = sample(allcells[allcells == s],2500)
+  newcells = newcells
+  cellnames = c(cellnames,newcells)
+}
+table(cellnames)
+newobject = subset(sobject,cells = names(cellnames))
+FeaturePlot(newobject,genes,split.by = "sample_description",cols = c("lightgrey","lightgrey","lightgrey","lightgrey","lightgrey","red"))
+for (gene in genes){
+  print(VlnPlot(sobject,gene,group.by = "sample_description",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black"))
+}
+
+sobject = PercentageFeatureSet(sobject,pattern = "^C1q",col.name = "C1q_pct")
+VlnPlot(sobject,"C1q_pct",group.by = "names",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
+VlnPlot(sobject,"C1q_pct",group.by = "names",split.by = "sample_description",pt.size = 0) + stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
+VlnPlot(sobject,"C1q_pct",group.by = "sample_description",pt.size = 0)+ stat_summary(fun = "median",geom = "point", size = 10, shape = 95, col = "Black") +NoLegend()
+```
+
+
+
+```{r,eval=F,results = 'hide'}
+save(sobject,file = file.path(dir,datafolder,filename))
+```
+
+Make violin plots for each cluster 
+```{r}
+
+```
+
+
+Compare the three samples
+```{r}
+
+
 
 ```
 
@@ -762,4 +777,75 @@ note: very confident in stage1 vs stage2 classification; see Keren-Shaul 2017
 https://www.cell.com/fulltext/S0092-8674(17)30578-0
 Figure S5
 
+```{r}
+table(sobject$names,sobject$fulldescription)
+```
+
+
+```{r}
+cells = c()
+for (sample in levels(as.factor(sobject$sample_description))){
+  cellnames = colnames(sobject)[sobject$sample_description == sample]
+  cellnames = sample(cellnames,size = 2500)
+  cells = c(cells,cellnames)
+}
+newobject = subset(sobject,cells = cells)
+DimPlot(newobject,group.by = "names",split.by = "sample_description",label = T)
+
+setEPS()
+postscript(file.path(dir,"Plots","DimPlot_names_equalcells_bysample.eps"))
+DimPlot(newobject,group.by = "names",split.by = "sample_description",label = T)
+dev.off()
+```
+
+
+```{r}
+t = table(sobject$names,sobject$fulldescription)
+t = t[,1:3]
+b = apply(t,MARGIN = 2,function(x)x/sum(x)*100)
+b = apply(b,MARGIN = 1,function(x)x/sum(x)*100)
+b = b[,order(colnames(b))]
+
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,100),xlim = c(0,35),ylab = "% of cluster",main = "Female - Normalized cluster proportion by sample",axes = T,cex.names = 0.8) + abline(h=33)
+
+setEPS()
+postscript(file.path(dir,"Plots","Female_barplot.eps"))
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,100),xlim = c(0,35),ylab = "% of cluster",main = "Female - Normalized cluster proportion by sample",axes = T,cex.names = 0.8) + abline(h=33)
+dev.off()
+
+t = table(sobject$names,sobject$fulldescription)
+t = t[,4:6]
+b = apply(t,MARGIN = 2,function(x)x/sum(x)*100)
+b = apply(b,MARGIN = 1,function(x)x/sum(x)*100)
+b = b[,order(colnames(b))]
+
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,100),xlim = c(0,35),ylab = "% of cluster",main = "Male - Normalized cluster proportion by sample",axes = T,cex.names = 0.8) + abline(h=33)
+
+setEPS()
+postscript(file.path(dir,"Plots","Male_barplot.eps"))
+barplot(b,beside = T,legend = rownames(b),col=c("blue","black","red"),ylim = c(0,100),xlim = c(0,35),ylab = "% of cluster",main = "Male - Normalized cluster proportion by sample",axes = T,cex.names = 0.8) + abline(h=33)
+dev.off()
+
+table(sobject$sex,sobject$names)
+
+```
+```{r}
+cells = c()
+for (sample in levels(as.factor(sobject$sex))){
+  cellnames = colnames(sobject)[sobject$sex == sample]
+  cellnames = sample(cellnames,size = 5000)
+  cells = c(cells,cellnames)
+}
+newobject = subset(sobject,cells = cells)
+DimPlot(newobject,group.by = "sex",split.by = "sample_description")
+```
+```{r}
+genes = c("Apoe","Spp1","Ifitm3","H2-Ab1","Stat1","C1qa","Mrc1","Pcna","DAM_Stage_1","DAM_Stage_2")
+for (gene in genes){
+  setEPS()
+  postscript(file.path(dir,"Plots",paste0(gene,"_vln_by_name.eps")))
+  print(VlnPlot(sobject,gene,group.by = "names",pt.size = 0)+NoLegend()+stat_summary(fun = "median",geom = "point",size = 10,shape = 95, col = "black"))
+  dev.off()
+}
+```
 
