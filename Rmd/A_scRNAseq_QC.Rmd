@@ -390,8 +390,17 @@ packageVersion("ape")
 packageVersion("cowplot")
 packageVersion("Matrix")
 packageVersion("EnhancedVolcano")
+packageVersion("Mast")
 R.version
 RStudio.Version()
+
+counts = as.data.frame(sobject@assays$RNA@counts)
+gzipfile = gzfile(file.path(dir,"Spreadsheets","counts.gz"),"w")
+write.csv(counts,gzipfile)
+close(gzipfile)
+
+cellassignment = sobject$orig.ident
+write.csv(cellassignment,file.path(dir,"Spreadsheets","unfiltered_sampleID.csv"),quote = F)
 ```
 packageVersion("Seurat")
 packageVersion("ggplot2")
